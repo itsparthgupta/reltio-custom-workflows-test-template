@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+             xmlns:activiti="http://activiti.org/bpmn"
+             xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+             xmlns:omgdc="http://www.omg.org/spec/DD/20100524/DC"
+             xmlns:omgdi="http://www.omg.org/spec/DD/20100524/DI"
+             typeLanguage="http://www.w3.org/2001/XMLSchema"
+             expressionLanguage="http://www.w3.org/1999/XPath"
+             targetNamespace="http://www.reltio.com/workflow">
+  <process id="deleteReviewWithValidation" name="Delete Review With Validation" isExecutable="true">
+
+    <startEvent id="start" name="Start" />
+    <sequenceFlow id="flow1" sourceRef="start" targetRef="validateTask" />
+
+    <serviceTask id="validateTask" name="Validate Delete Request"
+      activiti:class="com.company.workflow.delete.DeleteReviewValidator" />
+    <sequenceFlow id="flow2" sourceRef="validateTask" targetRef="reviewTask" />
+
+    <userTask id="reviewTask" name="Review Deletion" activiti:candidateGroups="ROLE_ADMIN">
+      <documentation>Approve or reject the validated delete request.</documentation>
+      <extensionElements>
+        <activiti:taskListener event="create"
+          class="com.reltio.workflow.activiti.service.TaskStartEventListener" />
+        <activiti:taskListener event="create"
+          class="com.reltio.workflow.activiti.service.DCRTypeTaskListener" />
+      </extensionElements>
+    </userTask>
+    <sequenceFlow id="flow3" sourceRef="reviewTask" targetRef="end" />
+
+    <endEvent id="end" name="End" />
+
+  </process>
+</definitions>

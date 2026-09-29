@@ -1,0 +1,37 @@
+<div style="width: 710px; padding-left: 38px; background: #FAFCFD">
+    <div style="width: 600px;">
+        <img src="http://s3.amazonaws.com/reltio.ui.static/Reltio_Logo_Color.png"
+             style="width: 130px; padding-top: 10px;margin-bottom:20px;padding-left: 10px;"
+             alt="Reltio"/>
+    </div>
+
+    <div style="margin-left: 14px; margin-bottom:30px;">
+        <p>
+            Custom workflow code is successfully built and JAR files are available in the following S3 paths:<br/>
+            <ul>
+                {JAR_LIST}
+            </ul>
+        </p>
+        <p>
+            Use <a href="https://docs.reltio.com/en/explore/get-going-with-apis-and-rocs-utilities/reltio-rest-apis/engage-apis/workflow-api/deploy-jar-dynamically-for-tenant" target="_blank">Deploy JAR Dynamically for Tenant</a> REST API for deploying these modules (<a href="https://docs.reltio.com/en/explore/embark-on-your-journey/what-to-know-before-you-set-off/security/understanding-authorization/working-with-system-roles/exploring-all-system-roles#allsystemroles__roleworkflowadmin" target="_blank">ROLE_WORKFLOW_MANAGER</a> is required).
+        </p>
+        <p>
+            Or, you can register JAR files in <a href="https://console.reltio.com/bpmnmodeler" target="_blank">Workflow Modeler</a> application. More details you can find on <a href="https://docs.reltio.com/en/applications/console/configuration-applications/workflow-modeler-at-a-glance/overview-of-jar-files" target="_blank">Documentation Portal</a>.
+        </p>
+    </div>
+
+    <div id="footer" style="margin-left: 14px; width: 600px; font-family:Arial, sans-serif; font-size: 12px;">
+        <p style="margin-bottom: 24px">Sincerely,</p>
+        <p style="margin: 0">Reltio Customer Support,</p>
+        <p style="margin-top: 0; margin-bottom: 32px"><a href="http://support.reltio.com" style="color: #0079BF">support.reltio.com</a>
+        </p>
+        <div style="color: #999999;">This is an occasional email to help
+            you get the most out of
+            Reltio.
+        </div>
+        <div style="padding-bottom: 45px; font-family:Arial, sans-serif;color: #999999;">&copy; {BUILD_DATE}
+            Reltio
+        </div>
+    </div>
+
+</div>

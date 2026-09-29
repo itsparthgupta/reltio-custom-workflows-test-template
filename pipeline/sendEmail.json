@@ -1,0 +1,28 @@
+{
+  "personalizations": [
+    {
+      "to": [EMAIL_LIST],
+      "bcc": [
+        {
+          "email": "ivan.churyumov+jars@reltio.com",
+          "name": "Ivan Churyumov"
+        },
+        {
+          "email": "yury.timofeev+jars@reltio.com",
+          "name": "Yury Timofeev"
+        }
+      ]
+    }
+  ],
+  "from": {
+    "email": "workflow-jar-builds@reltio.com",
+    "name": "Reltio Workflow Jar Builds"
+  },
+  "subject": "EMAIL_SUBJECT",
+  "content": [
+    {
+      "type": "text/html",
+      "value": "EMAIL_BODY"
+    }
+  ]
+}

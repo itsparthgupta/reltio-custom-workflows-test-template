@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+             xmlns:activiti="http://activiti.org/bpmn"
+             xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+             xmlns:omgdc="http://www.omg.org/spec/DD/20100524/DC"
+             xmlns:omgdi="http://www.omg.org/spec/DD/20100524/DI"
+             typeLanguage="http://www.w3.org/2001/XMLSchema"
+             expressionLanguage="http://www.w3.org/1999/XPath"
+             targetNamespace="http://www.reltio.com/workflow">
+  <process id="parallelApproveDelete" name="Parallel Approve Delete" isExecutable="true">
+
+    <startEvent id="start" name="Start" />
+    <sequenceFlow id="flow1" sourceRef="start" targetRef="split" />
+
+    <parallelGateway id="split" name="Split" />
+    <sequenceFlow id="flow2" sourceRef="split" targetRef="approveTask" />
+    <sequenceFlow id="flow3" sourceRef="split" targetRef="deleteTask" />
+
+    <userTask id="approveTask" name="Approve" activiti:candidateGroups="ROLE_ADMIN">
+      <extensionElements>
+        <activiti:taskListener event="create"
+          class="com.reltio.workflow.activiti.service.TaskStartEventListener" />
+        <activiti:taskListener event="create"
+          class="com.reltio.workflow.activiti.service.DCRTypeTaskListener" />
+      </extensionElements>
+    </userTask>
+    <sequenceFlow id="flow4" sourceRef="approveTask" targetRef="join" />
+
+    <serviceTask id="deleteTask" name="Delete Entity"
+      activiti:class="com.company.workflow.parallel.dcr.DeleteEntity" />
+    <sequenceFlow id="flow5" sourceRef="deleteTask" targetRef="join" />
+
+    <parallelGateway id="join" name="Join" />
+    <sequenceFlow id="flow6" sourceRef="join" targetRef="end" />
+
+    <endEvent id="end" name="End" />
+
+  </process>
+</definitions>

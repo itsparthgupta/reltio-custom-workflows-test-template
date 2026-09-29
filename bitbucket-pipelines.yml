@@ -1,0 +1,244 @@
+#  Template maven-build
+
+#  This template allows you to test and build your Java project with Maven.
+#  The workflow allows running tests, code checkstyle and security scans on the default branch.
+
+# Prerequisites: pom.xml and appropriate project structure should exist in the repository.
+export: true
+image: maven:3.6.3-openjdk-17
+clone:
+  depth: full              # SonarCloud scanner needs the full history to assign issues properly
+definitions:
+  caches:
+    sonar: ~/.sonar/cache
+  steps:
+    - step: &verify-pom
+        name: Verify pom
+        image: python:3.7
+        script:
+          - pip install requests --quiet
+          - git clone --no-checkout --filter=tree:0 https://x-token-auth:$BITBUCKET_PIPELINE_TOKEN@bitbucket.org/reltio-ondemand/reltio-custom-workflows.git
+          - cd reltio-custom-workflows
+          - git sparse-checkout set pipeline
+          - git checkout "${PIPELINE_BRANCH:-master}"
+          - cd ../
+          - python3 reltio-custom-workflows/pipeline/WorkflowJarProjectValidator.py ./pom.xml
+        artifacts:
+          - reltio-custom-workflows/pipeline/**
+    - step: &check-versions
+        oidc: true
+        name: Check versions
+        image: amazon/aws-cli
+        script:
+          - curl -L --compressed https://github.com/jqlang/jq/releases/download/jq-1.6/jq-linux64 -o jq
+          - chmod +x ./jq
+          - chmod +x ./reltio-custom-workflows/pipeline/readProperty.sh
+          - chmod +x ./reltio-custom-workflows/pipeline/checkJarVersion.sh
+          - chmod +x ./reltio-custom-workflows/pipeline/ensureS3Prefix.sh
+          - AWS_REGION=$(./reltio-custom-workflows/pipeline/readProperty.sh "aws.region")
+          - AWS_BUCKET=$(./reltio-custom-workflows/pipeline/readProperty.sh "aws.bucket")
+          - export AWS_ROLE_ARN="${AWS_ROLE_ARN_OVERRIDE:-$AWS_ROLE_ARN}"
+          - export AWS_WEB_IDENTITY_TOKEN_FILE=$(pwd)/web-identity-token
+          - echo $BITBUCKET_STEP_OIDC_TOKEN > $(pwd)/web-identity-token
+          - echo "$BITBUCKET_STEP_OIDC_TOKEN" | cut -d '.' -f2 | base64 -d | jq
+          - |
+            if [ -z "$AWS_ROLE_ARN" ]; then
+              export AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID_OVERRIDE:-$AWS_ACCESS_KEY_ID}"
+              export AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY_OVERRIDE:-$AWS_SECRET_ACCESS_KEY}"
+              echo "Using AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:0:4}****"
+              if [ -n "$AWS_ACCESS_KEY_ID_OVERRIDE" ]; then
+                echo "AWS_ACCESS_KEY_ID_OVERRIDE was used"
+              else
+                echo "AWS_ACCESS_KEY_ID from environment was used"
+              fi
+              if [ -n "$AWS_SECRET_ACCESS_KEY_OVERRIDE" ]; then
+                echo "AWS_SECRET_ACCESS_KEY_OVERRIDE was used"
+              else
+                echo "AWS_SECRET_ACCESS_KEY from environment was used"
+              fi
+            else
+              echo "Using AWS_ROLE_ARN: ${AWS_ROLE_ARN}"
+              unset AWS_ACCESS_KEY_ID
+              unset AWS_SECRET_ACCESS_KEY
+            fi
+          - ./reltio-custom-workflows/pipeline/ensureS3Prefix.sh "$AWS_BUCKET" "$AWS_REGION"
+          - aws s3 ls "$AWS_BUCKET/"
+          - ./reltio-custom-workflows/pipeline/checkJarVersion.sh ./pom.xml $AWS_BUCKET
+    - step: &build-and-test
+        name: Build and Test
+        caches:
+          - maven
+        script:
+          - sed -i~ "/<servers>/ a<server>  <id>reltio-libs-release</id>  <username>${MAVEN_USERNAME}</username>  <password>${MAVEN_PASSWORD}</password></server>" /usr/share/maven/conf/settings.xml
+          - mvn -B verify --file pom.xml
+        after-script:
+          # Collect checkstyle results, if any, and convert to Bitbucket Code Insights.
+          - pipe: atlassian/checkstyle-report:0.3.0
+        artifacts:
+          - "**/target/**"
+    - step: &snyk
+        name: Snyk
+        caches:
+          - maven
+        script:
+          - sed -i~ "/<servers>/ a<server>  <id>reltio-libs-release</id>  <username>${MAVEN_USERNAME}</username>  <password>${MAVEN_PASSWORD}</password></server>" /usr/share/maven/conf/settings.xml
+          - curl --compressed https://static.snyk.io/cli/v1.996.0/snyk-linux -o snyk
+          - chmod +x ./snyk
+          - ./snyk test --all-projects --json --debug | tee snyk-test-output.json
+        after-script:
+          - pipe: snyk/snyk-scan:0.7.0
+            variables:
+              SNYK_TOKEN: $SNYK_TOKEN
+              SNYK_TEST_JSON_INPUT: "snyk-test-output.json"
+              ORGANIZATION: "reltio-custom-jar"
+        artifacts:
+          - "snyk-test-output.json"
+    - step: &sonarcloud
+        name: SonarCloud
+        # SonarScanner runs on Java 21 independently of the Java 17 project build.
+        image: maven:3.9.9-eclipse-temurin-21
+        caches:
+          - sonar
+        script:
+          - java --version
+          - mvn --version
+          - mvn -Dsonar.organization=$SONAR_ORG -Dsonar.projectKey=$SONAR_PROJECT_KEY -Dsonar.scanner.skipJreProvisioning=true org.sonarsource.scanner.maven:sonar-maven-plugin:5.6.0.6792:sonar
+    - step: &codecov
+        name: Codecov
+        caches:
+          - maven
+        script:
+          - curl -Os https://uploader.codecov.io/latest/linux/codecov
+          - chmod +x codecov
+          - ./codecov
+    - step: &security-scan
+        name: Security Scan
+        script:
+          # Run a security scan for sensitive data.
+          # See more security tools at https://bitbucket.org/product/features/pipelines/integrations?&category=security
+          - pipe: atlassian/git-secrets-scan:0.5.1
+    - step: &deploy-to-s3
+        oidc: true
+        name: Deploy to S3
+        deployment: production
+        script:
+          - chmod +x ./reltio-custom-workflows/pipeline/readProperty.sh
+          - chmod +x ./reltio-custom-workflows/pipeline/collectJars.sh
+          - ./reltio-custom-workflows/pipeline/collectJars.sh
+          - AWS_REGION=$(./reltio-custom-workflows/pipeline/readProperty.sh "aws.region")
+          - AWS_BUCKET=$(./reltio-custom-workflows/pipeline/readProperty.sh "aws.bucket")
+          - export AWS_ROLE_ARN="${AWS_ROLE_ARN_OVERRIDE:-$AWS_ROLE_ARN}"
+          - export AWS_WEB_IDENTITY_TOKEN_FILE=$(pwd)/web-identity-token
+          - echo $BITBUCKET_STEP_OIDC_TOKEN > $(pwd)/web-identity-token
+          - |
+            if [ -z "$AWS_ROLE_ARN" ]; then
+              export AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID_OVERRIDE:-$AWS_ACCESS_KEY_ID}"
+              export AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY_OVERRIDE:-$AWS_SECRET_ACCESS_KEY}"
+              echo "Using AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:0:4}****"
+              if [ -n "$AWS_ACCESS_KEY_ID_OVERRIDE" ]; then
+                echo "AWS_ACCESS_KEY_ID_OVERRIDE was used"
+              else
+                echo "AWS_ACCESS_KEY_ID from environment was used"
+              fi
+              if [ -n "$AWS_SECRET_ACCESS_KEY_OVERRIDE" ]; then
+                echo "AWS_SECRET_ACCESS_KEY_OVERRIDE was used"
+              else
+                echo "AWS_SECRET_ACCESS_KEY from environment was used"
+              fi
+            else
+              echo "Using AWS_ROLE_ARN: ${AWS_ROLE_ARN}"
+              unset AWS_ACCESS_KEY_ID
+              unset AWS_SECRET_ACCESS_KEY
+            fi
+          - pipe: atlassian/aws-s3-deploy:2.1.0
+            variables:
+              AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID_OVERRIDE:-$AWS_ACCESS_KEY_ID}
+              AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY_OVERRIDE:-$AWS_SECRET_ACCESS_KEY}
+              AWS_OIDC_ROLE_ARN: $AWS_ROLE_ARN
+              AWS_DEFAULT_REGION: $AWS_REGION
+              S3_BUCKET: $AWS_BUCKET
+              LOCAL_PATH: 'deploy'
+          - echo "Sending notification by email"
+          - chmod +x ./reltio-custom-workflows/pipeline/sendNotifications.sh
+          - ./reltio-custom-workflows/pipeline/sendNotifications.sh $SENDGRID_API_KEY $BITBUCKET_REPO_SLUG $BITBUCKET_PROJECT_KEY
+    - step: &clone-pipeline-scripts
+        name: Clone pipeline scripts
+        image: python:3.7
+        script:
+          - git clone --no-checkout --filter=tree:0 https://x-token-auth:$BITBUCKET_PIPELINE_TOKEN@bitbucket.org/reltio-ondemand/reltio-custom-workflows.git
+          - cd reltio-custom-workflows
+          - git sparse-checkout set pipeline
+          - |
+            # Consuming repos default to master. Override with PIPELINE_BRANCH.
+            # When this repository builds itself, use the branch under test.
+            if [ -n "${PIPELINE_BRANCH:-}" ]; then
+              branch="$PIPELINE_BRANCH"
+            elif [ "${BITBUCKET_REPO_SLUG}" = "reltio-custom-workflows" ]; then
+              branch="${BITBUCKET_BRANCH}"
+            else
+              branch="master"
+            fi
+            echo "Checking out pipeline scripts from branch: $branch"
+            git checkout "$branch"
+        artifacts:
+          - reltio-custom-workflows/pipeline/**
+    - step: &create-s3-prefix
+        oidc: true
+        name: Create S3 prefix
+        image: amazon/aws-cli
+        script:
+          - chmod +x ./reltio-custom-workflows/pipeline/readProperty.sh
+          - chmod +x ./reltio-custom-workflows/pipeline/ensureS3Prefix.sh
+          - AWS_REGION=$(./reltio-custom-workflows/pipeline/readProperty.sh "aws.region")
+          - AWS_BUCKET=$(./reltio-custom-workflows/pipeline/readProperty.sh "aws.bucket")
+          - export AWS_ROLE_ARN="${AWS_ROLE_ARN_OVERRIDE:-$AWS_ROLE_ARN}"
+          - export AWS_WEB_IDENTITY_TOKEN_FILE=$(pwd)/web-identity-token
+          - echo $BITBUCKET_STEP_OIDC_TOKEN > $(pwd)/web-identity-token
+          - |
+            if [ -z "$AWS_ROLE_ARN" ]; then
+              export AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID_OVERRIDE:-$AWS_ACCESS_KEY_ID}"
+              export AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY_OVERRIDE:-$AWS_SECRET_ACCESS_KEY}"
+              echo "Using AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:0:4}****"
+              if [ -n "$AWS_ACCESS_KEY_ID_OVERRIDE" ]; then
+                echo "AWS_ACCESS_KEY_ID_OVERRIDE was used"
+              else
+                echo "AWS_ACCESS_KEY_ID from environment was used"
+              fi
+              if [ -n "$AWS_SECRET_ACCESS_KEY_OVERRIDE" ]; then
+                echo "AWS_SECRET_ACCESS_KEY_OVERRIDE was used"
+              else
+                echo "AWS_SECRET_ACCESS_KEY from environment was used"
+              fi
+            else
+              echo "Using AWS_ROLE_ARN: ${AWS_ROLE_ARN}"
+              unset AWS_ACCESS_KEY_ID
+              unset AWS_SECRET_ACCESS_KEY
+            fi
+          - ./reltio-custom-workflows/pipeline/ensureS3Prefix.sh "$AWS_BUCKET" "$AWS_REGION"
+  pipelines:
+    export-pr-checks: &export-pr-checks
+      - step: *verify-pom
+      - step: *check-versions
+      - step: *build-and-test
+      - parallel:
+          - step: *snyk
+          - step: *sonarcloud
+          - step: *codecov
+          - step: *security-scan
+    export-deploy: &export-deploy
+      - step: *verify-pom
+      - step: *build-and-test
+      - parallel:
+          - step: *snyk
+          - step: *sonarcloud
+          - step: *codecov
+          - step: *security-scan
+      - step: *deploy-to-s3
+    export-create-s3-prefix: &export-create-s3-prefix
+      - step: *clone-pipeline-scripts
+      - step: *create-s3-prefix
+pipelines:
+  custom:
+    pr-checks: *export-pr-checks
+    deploy: *export-deploy
+    create-s3-prefix: *export-create-s3-prefix
