@@ -29,12 +29,21 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
           cache: maven
+          # Writes ~/.m2/settings.xml with a <server> entry for reltio-libs-release,
+          # reading the actual credential values from the env vars below at build time
+          # (mirrors bitbucket-pipelines.yml's sed-into-settings.xml step).
+          server-id: reltio-libs-release
+          server-username: MAVEN_USERNAME
+          server-password: MAVEN_PASSWORD
 
       - name: Verify pom structure (JDK/scope/AWS SDK checks)
         run: python3 pipeline/WorkflowJarProjectValidator.py ./pom.xml
 
       - name: mvn verify (compile, test, coverage gate)
         run: mvn -B verify --file pom.xml
+        env:
+          MAVEN_USERNAME: ${{ secrets.MAVEN_USERNAME }}
+          MAVEN_PASSWORD: ${{ secrets.MAVEN_PASSWORD }}
 
   publish-to-s3:
     name: Package and publish jars to S3
@@ -51,9 +60,15 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
           cache: maven
+          server-id: reltio-libs-release
+          server-username: MAVEN_USERNAME
+          server-password: MAVEN_PASSWORD
 
       - name: mvn verify (compile, test, package)
         run: mvn -B verify --file pom.xml
+        env:
+          MAVEN_USERNAME: ${{ secrets.MAVEN_USERNAME }}
+          MAVEN_PASSWORD: ${{ secrets.MAVEN_PASSWORD }}
 
       - name: Collect jars (strip -everything suffix, same as pipeline/collectJars.sh)
         run: |
