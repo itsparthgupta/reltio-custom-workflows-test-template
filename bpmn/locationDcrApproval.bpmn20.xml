@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+             xmlns:activiti="http://activiti.org/bpmn"
+             xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+             xmlns:omgdc="http://www.omg.org/spec/DD/20100524/DC"
+             xmlns:omgdi="http://www.omg.org/spec/DD/20100524/DI"
+             typeLanguage="http://www.w3.org/2001/XMLSchema"
+             expressionLanguage="http://www.w3.org/1999/XPath"
+             targetNamespace="http://www.reltio.com/workflow">
+
+  <!--
+    Location DCR two-step approval.
+
+    Only intended to run for Location change requests (configure
+    objectTypes = configuration/entityTypes/Location and manualStart =
+    false on this process definition in the Workflow Modeler properties
+    panel after import, since those are modeler-level settings and are
+    not expressed in raw BPMN).
+
+    Flow:
+      1. captureRequestor   - records the DCR's createdBy as ${requestor}.
+      2. apiReview          - ROLE_API: Approve / Reject (comment required).
+           Reject -> DCR is rejected, a task is routed to ${requestor}
+                     carrying the mandatory reason.
+      3. adminReview        - ROLE_ADMIN: Approve / Reject (comment
+         required) / Send Back to API (comment required).
+           Approve  -> DCR is applied.
+           Reject   -> DCR is rejected, task routed to ${requestor}.
+           SendBack -> loops back to apiReview (cycle), so ROLE_API
+                       reviews again before Admin decides again.
+  -->
+  <process id="locationDcrApproval" name="Location DCR Two-Step Approval" isExecutable="true">
+
+    <startEvent id="start" name="Start" />
+    <sequenceFlow id="flowStartToCapture" sourceRef="start" targetRef="captureRequestor" />
+
+    <serviceTask id="captureRequestor" name="Capture Requestor"
+      activiti:class="com.company.workflow.location.CaptureRequestor" />
+    <sequenceFlow id="flowCaptureToApiReview" sourceRef="captureRequestor" targetRef="apiReview" />
+
+    <!-- Step 1: ROLE_API review -->
+    <userTask id="apiReview" name="API Review" activiti:candidateGroups="ROLE_API">
+      <documentation>Review the Location change request. Reject requires a mandatory comment.</documentation>
+      <extensionElements>
+        <activiti:taskListener event="create"
+          class="com.reltio.workflow.activiti.service.TaskStartEventListener" />
+        <activiti:taskListener event="create"
+          class="com.reltio.workflow.activiti.service.DCRTypeTaskListener" />
+        <activiti:formProperty id="decision" name="Decision" type="enum">
+          <activiti:value id="approve" name="Approve" />
+          <activiti:value id="reject" name="Reject" commentRequired="true" />
+        </activiti:formProperty>
+      </extensionElements>
+    </userTask>
+    <sequenceFlow id="flowApiReviewToGateway" sourceRef="apiReview" targetRef="apiDecisionGateway" />
+
+    <exclusiveGateway id="apiDecisionGateway" name="API Decision" />
+    <sequenceFlow id="flowApiApprove" sourceRef="apiDecisionGateway" targetRef="adminReview">
+      <conditionExpression xsi:type="tFormalExpression">${decision=='approve'}</conditionExpression>
+    </sequenceFlow>
+    <sequenceFlow id="flowApiReject" sourceRef="apiDecisionGateway" targetRef="rejectDcrFromApi">
+      <conditionExpression xsi:type="tFormalExpression">${decision=='reject'}</conditionExpression>
+    </sequenceFlow>
+
+    <serviceTask id="rejectDcrFromApi" name="Reject DCR"
+      activiti:class="com.reltio.workflow.external.services.ChangeRequest3rdPartyReject" />
+    <sequenceFlow id="flowRejectFromApiToNotify" sourceRef="rejectDcrFromApi" targetRef="notifyRequestorApiReject" />
+
+    <userTask id="notifyRequestorApiReject" name="Requestor Notified (API Reject)"
+      activiti:assignee="${requestor}">
+      <documentation>Informs the requestor that the DCR was rejected at API review, with the reviewer's mandatory comment.</documentation>
+      <extensionElements>
+        <activiti:taskListener event="create"
+          class="com.reltio.workflow.activiti.service.TaskStartEventListener" />
+      </extensionElements>
+    </userTask>
+    <sequenceFlow id="flowNotifyApiRejectToEnd" sourceRef="notifyRequestorApiReject" targetRef="endRejectedByApi" />
+    <endEvent id="endRejectedByApi" name="Rejected by API" />
+
+    <!-- Step 2: ROLE_ADMIN review -->
+    <userTask id="adminReview" name="Admin Review" activiti:candidateGroups="ROLE_ADMIN">
+      <documentation>Approve, Reject, or Send Back to API. Reject and Send Back require a mandatory comment.</documentation>
+      <extensionElements>
+        <activiti:taskListener event="create"
+          class="com.reltio.workflow.activiti.service.TaskStartEventListener" />
+        <activiti:taskListener event="create"
+          class="com.reltio.workflow.activiti.service.DCRTypeTaskListener" />
+        <activiti:formProperty id="decision" name="Decision" type="enum">
+          <activiti:value id="approve" name="Approve" />
+          <activiti:value id="reject" name="Reject" commentRequired="true" />
+          <activiti:value id="sendBack" name="Send Back to API" commentRequired="true" />
+        </activiti:formProperty>
+      </extensionElements>
+    </userTask>
+    <sequenceFlow id="flowAdminReviewToGateway" sourceRef="adminReview" targetRef="adminDecisionGateway" />
+
+    <exclusiveGateway id="adminDecisionGateway" name="Admin Decision" />
+    <sequenceFlow id="flowAdminApprove" sourceRef="adminDecisionGateway" targetRef="applyDcr">
+      <conditionExpression xsi:type="tFormalExpression">${decision=='approve'}</conditionExpression>
+    </sequenceFlow>
+    <sequenceFlow id="flowAdminReject" sourceRef="adminDecisionGateway" targetRef="rejectDcrFromAdmin">
+      <conditionExpression xsi:type="tFormalExpression">${decision=='reject'}</conditionExpression>
+    </sequenceFlow>
+    <sequenceFlow id="flowAdminSendBack" sourceRef="adminDecisionGateway" targetRef="apiReview">
+      <conditionExpression xsi:type="tFormalExpression">${decision=='sendBack'}</conditionExpression>
+    </sequenceFlow>
+
+    <serviceTask id="applyDcr" name="Apply DCR"
+      activiti:class="com.reltio.workflow.external.services.ChangeRequest3rdPartyApply" />
+    <sequenceFlow id="flowApplyToEnd" sourceRef="applyDcr" targetRef="endApproved" />
+    <endEvent id="endApproved" name="Approved" />
+
+    <serviceTask id="rejectDcrFromAdmin" name="Reject DCR"
+      activiti:class="com.reltio.workflow.external.services.ChangeRequest3rdPartyReject" />
+    <sequenceFlow id="flowRejectFromAdminToNotify" sourceRef="rejectDcrFromAdmin" targetRef="notifyRequestorAdminReject" />
+
+    <userTask id="notifyRequestorAdminReject" name="Requestor Notified (Admin Reject)"
+      activiti:assignee="${requestor}">
+      <documentation>Informs the requestor that the DCR was rejected at Admin review, with the reviewer's mandatory comment.</documentation>
+      <extensionElements>
+        <activiti:taskListener event="create"
+          class="com.reltio.workflow.activiti.service.TaskStartEventListener" />
+      </extensionElements>
+    </userTask>
+    <sequenceFlow id="flowNotifyAdminRejectToEnd" sourceRef="notifyRequestorAdminReject" targetRef="endRejectedByAdmin" />
+    <endEvent id="endRejectedByAdmin" name="Rejected by Admin" />
+
+  </process>
+</definitions>
