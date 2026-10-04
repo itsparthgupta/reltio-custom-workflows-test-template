@@ -10,6 +10,7 @@
         <module>workflow-external-dcr</module>
         <module>parallel-approve-delete</module>
         <module>custom-notifications</module>
+        <module>location-dcr-approval</module>
     </modules>
     <name>Reltio Custom Workflows</name>
     <properties>
