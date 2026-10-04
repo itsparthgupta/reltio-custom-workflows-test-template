@@ -1,0 +1,87 @@
+name: Build, Test, Publish (demo pipeline)
+
+# This is a LOCAL SIMULATION of the real Reltio pipeline, for this personal test/demo
+# repository only. The real pipeline (bitbucket-pipelines.yml) only triggers on
+# Bitbucket PRs against reltio-ondemand/* via a Reltio-managed webhook + Vault secrets.
+# This workflow does not represent how any real tenant's provisioned repository behaves.
+# See skills/workspace/workflow-repo-contribution/SKILL.md for the full explanation.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Verify pom structure (JDK/scope/AWS SDK checks)
+        run: python3 pipeline/WorkflowJarProjectValidator.py ./pom.xml
+
+      - name: mvn verify (compile, test, coverage gate)
+        run: mvn -B verify --file pom.xml
+
+  publish-to-s3:
+    name: Package and publish jars to S3
+    needs: build-and-test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: mvn verify (compile, test, package)
+        run: mvn -B verify --file pom.xml
+
+      - name: Collect jars (strip -everything suffix, same as pipeline/collectJars.sh)
+        run: |
+          chmod +x ./pipeline/collectJars.sh
+          ./pipeline/collectJars.sh
+          echo "--- deploy/ contents ---"
+          ls -la deploy/
+
+      - name: Read S3 bucket/region from repository.properties
+        id: props
+        run: |
+          chmod +x ./pipeline/readProperty.sh
+          bucket="$(./pipeline/readProperty.sh "aws.bucket")"
+          region="$(./pipeline/readProperty.sh "aws.region")"
+          echo "bucket=${bucket}" >> "${GITHUB_OUTPUT}"
+          echo "region=${region}" >> "${GITHUB_OUTPUT}"
+          echo "Target: s3://${bucket}/ (${region})"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ steps.props.outputs.region }}
+
+      - name: Upload jars to S3
+        run: |
+          aws s3 cp deploy/ "s3://${{ steps.props.outputs.bucket }}/" --recursive
+          echo "Uploaded:"
+          aws s3 ls "s3://${{ steps.props.outputs.bucket }}/" --recursive | tail -n 20
