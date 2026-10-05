@@ -11,6 +11,7 @@
         <module>parallel-approve-delete</module>
         <module>custom-notifications</module>
         <module>location-dcr-approval</module>
+        <module>product-dcr-approval</module>
     </modules>
     <name>Reltio Custom Workflows</name>
     <properties>
