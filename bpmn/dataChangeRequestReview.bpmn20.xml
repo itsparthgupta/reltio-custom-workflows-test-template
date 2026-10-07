@@ -239,7 +239,7 @@
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="BPMNEdge_flowClarificationToProductReview" bpmnElement="flowClarificationToProductReview">
         <omgdi:waypoint x="610" y="80" />
-        <omgdi:waypoint x="610" y="80" />
+        <omgdi:waypoint x="610" y="120" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="BPMNEdge_flowStandardReviewToGateway" bpmnElement="flowStandardReviewToGateway">
         <omgdi:waypoint x="520" y="320" />
