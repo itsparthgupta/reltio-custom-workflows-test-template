@@ -15,6 +15,10 @@ against a real GitHub clone. It is not a real customer repository.
 * **location-dcr-approval** - `CaptureRequestor` service task that records a Location DCR's
   `createdBy` as the `requestor` process variable, so rejection paths can route a follow-up
   task back to whoever submitted the change
+* **product-dcr-approval** - `ResolveEntityType`, `CaptureRequestor`, and
+  `UpdateDcrReviewerListener` for the Product branch of the default DCR review process
+  (`dataChangeRequestReview`): `ROLE_API` review, optional send-back to the submitter with a
+  mandatory comment, then return to the same reviewer after clarification
 
 ### BPMN (`bpmn/`) ###
 
@@ -41,6 +45,10 @@ process that actually references real custom Java classes:
   After importing, set this process definition's `objectTypes` to
   `configuration/entityTypes/Location` in the Workflow Modeler properties panel (not
   expressible in raw BPMN) so it only triggers for Location DCRs.
+* **`bpmn/dataChangeRequestReview.bpmn20.xml`** — process id `dataChangeRequestReview` (Hub
+  **Suggest** auto-start). Product DCRs route to `ROLE_API` with a clarification loop; all other
+  entity types use the standard `ROLE_DATASTEWARD` review unchanged. Uses classes from
+  `product-dcr-approval`.
 
 Edit either file's content and run **Refresh Sync Status** in the IDE to flip
 its badge from `clean` to `changed`.
