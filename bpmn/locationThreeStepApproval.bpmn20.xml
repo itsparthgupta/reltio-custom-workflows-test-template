@@ -1,0 +1,514 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+             xmlns:activiti="http://activiti.org/bpmn"
+             xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+             xmlns:omgdc="http://www.omg.org/spec/DD/20100524/DC"
+             xmlns:omgdi="http://www.omg.org/spec/DD/20100524/DI"
+             typeLanguage="http://www.w3.org/2001/XMLSchema"
+             expressionLanguage="http://www.w3.org/1999/XPath"
+             targetNamespace="http://www.reltio.com/workflow">
+
+  <!--
+    Location Three-Step Approval
+    =============================
+    Scope: any Location entity change request (configure objectTypes =
+    configuration/entityTypes/Location in the Workflow Modeler properties
+    panel after import; manualStart is also set there since it is a
+    modeler-level setting not expressible in raw BPMN).
+
+    Every review step exposes exactly three options, and ALL three
+    require a mandatory comment:
+      - Accept    -> advance to next reviewer (or apply, on step 3)
+      - Reject    -> terminate the DCR, notify requestor with the comment
+      - Send Back -> return to the previous step for re-review
+                     (step 1 Send Back returns to the requestor for
+                      clarification, then re-enters step 1)
+
+    Flow:
+      start -> captureRequestor -> resolveRegionalReviewer
+            -> regionalReview (${regionalReviewerGroup}: US / EU / APAC stewards)
+                 Accept    -> step1Review
+                 Reject    -> rejectDcr -> notifyRequestor -> endRejectedRegional
+                 SendBack  -> clarificationRegional -> regionalReview
+            -> step1Review   (ROLE_DATASTEWARD)
+                 Accept    -> step2Review
+                 Reject    -> rejectDcr -> notifyRequestor -> endRejectedStep1
+                 SendBack  -> clarification (assignee = requestor) -> step1Review
+            -> step2Review   (ROLE_API)
+                 Accept    -> step3Review
+                 Reject    -> rejectDcr -> notifyRequestor -> endRejectedStep2
+                 SendBack  -> step1Review
+            -> step3Review   (ROLE_ADMIN)
+                 Accept    -> applyDcr -> endApproved
+                 Reject    -> rejectDcr -> notifyRequestor -> endRejectedStep3
+                 SendBack  -> step2Review
+
+    Process variables:
+      requestor              String   createdBy of the change request (set by captureRequestor)
+      regionalReviewerGroup  String   ROLE_REVIEWER_US | ROLE_REVIEWER_EU | ROLE_REVIEWER_APAC
+      decision               String   accept | reject | sendBack (set per task by the form property)
+      comment                String   mandatory reviewer comment captured on every decision
+  -->
+
+  <process id="locationThreeStepApproval" name="Location Three-Step Approval" isExecutable="true">
+
+    <startEvent id="start" name="Start">
+      <extensionElements>
+        <activiti:executionListener event="start"
+          class="com.reltio.workflow.activiti.service.DCRHasChangesListener" />
+      </extensionElements>
+    </startEvent>
+    <sequenceFlow id="flowStartToCapture" sourceRef="start" targetRef="captureRequestor" />
+
+    <serviceTask id="captureRequestor" name="Capture Requestor"
+      activiti:class="com.company.workflow.location.CaptureRequestor" />
+    <sequenceFlow id="flowCaptureToResolveRegional" sourceRef="captureRequestor" targetRef="resolveRegionalReviewer" />
+
+    <serviceTask id="resolveRegionalReviewer" name="Resolve Regional Reviewer Group"
+      activiti:class="com.company.workflow.location.ResolveRegionalReviewerGroup" />
+    <sequenceFlow id="flowResolveRegionalToReview" sourceRef="resolveRegionalReviewer" targetRef="regionalReview" />
+
+    <!-- ═══════════════════════════════════════════════════════
+         REGIONAL REVIEW — candidate group from Location Country
+         ═══════════════════════════════════════════════════════ -->
+    <userTask id="regionalReview" name="Regional Location Review"
+              activiti:dueDate="P2D"
+              activiti:candidateGroups="${regionalReviewerGroup}">
+      <documentation>First review by the regional data-steward group matching the Location's Country (US, EU, or APAC).</documentation>
+      <extensionElements>
+        <activiti:formProperty id="decision" name="Decision" type="enum" required="true">
+          <activiti:value id="accept" name="Accept" commentRequired="true" />
+          <activiti:value id="reject" name="Reject" commentRequired="true" />
+          <activiti:value id="sendBack" name="Send Back" commentRequired="true" />
+        </activiti:formProperty>
+        <activiti:formProperty id="comment" name="Comment" type="string" required="true" />
+        <activiti:formProperty id="accessTypes" name="AccessTypes" type="string"
+          default="ACCEPT_CHANGE_REQUEST" writable="false" />
+        <activiti:formProperty id="validator" name="Validator" type="string"
+          default="com.reltio.workflow.core.task.validator.DataChangeRequestValidator" writable="false" />
+        <activiti:formProperty id="notificationOnAssignmentEnabled" name="NotificationOnAssignmentEnabled"
+          type="boolean" default="true" writable="false" />
+        <activiti:formProperty id="notificationOnCompletionEnabled" name="NotificationOnCompletionEnabled"
+          type="boolean" default="true" writable="false" />
+        <activiti:taskListener event="create"
+          class="com.reltio.workflow.activiti.service.TaskStartEventListener" />
+        <activiti:taskListener event="create"
+          class="com.reltio.workflow.activiti.service.DCRTypeTaskListener" />
+        <activiti:taskListener event="assignment"
+          class="com.reltio.workflow.activiti.service.TaskAssignmentEventListener" />
+      </extensionElements>
+    </userTask>
+    <sequenceFlow id="flowRegionalToGateway" sourceRef="regionalReview" targetRef="regionalGateway" />
+
+    <exclusiveGateway id="regionalGateway" name="Regional Decision" />
+    <sequenceFlow id="flowRegionalAccept" sourceRef="regionalGateway" targetRef="step1Review">
+      <conditionExpression xsi:type="tFormalExpression">${decision=='accept'}</conditionExpression>
+    </sequenceFlow>
+    <sequenceFlow id="flowRegionalReject" sourceRef="regionalGateway" targetRef="rejectDcrRegional">
+      <conditionExpression xsi:type="tFormalExpression">${decision=='reject'}</conditionExpression>
+    </sequenceFlow>
+    <sequenceFlow id="flowRegionalSendBack" sourceRef="regionalGateway" targetRef="clarificationRegional">
+      <conditionExpression xsi:type="tFormalExpression">${decision=='sendBack'}</conditionExpression>
+    </sequenceFlow>
+
+    <userTask id="clarificationRegional" name="Provide Clarification (Regional)"
+              activiti:assignee="${requestor}"
+              activiti:dueDate="P2D">
+      <documentation>Routed back to the requestor from regional review before re-entering the regional step.</documentation>
+      <extensionElements>
+        <activiti:formProperty id="decision" name="Decision" type="enum" default="resubmit" required="true">
+          <activiti:value id="resubmit" name="Resubmit" />
+        </activiti:formProperty>
+        <activiti:taskListener event="create"
+          class="com.reltio.workflow.activiti.service.TaskStartEventListener" />
+      </extensionElements>
+    </userTask>
+    <sequenceFlow id="flowClarificationRegionalToResolve" sourceRef="clarificationRegional" targetRef="resolveRegionalReviewer" />
+
+    <serviceTask id="rejectDcrRegional" name="Reject DCR (Regional)"
+      activiti:class="com.reltio.workflow.external.services.ChangeRequest3rdPartyReject" />
+    <sequenceFlow id="flowRejectRegionalToNotify" sourceRef="rejectDcrRegional" targetRef="notifyRequestorRegionalReject" />
+
+    <userTask id="notifyRequestorRegionalReject" name="Requestor Notified (Regional Reject)"
+              activiti:assignee="${requestor}">
+      <documentation>Informs the requestor that the DCR was rejected at regional review.</documentation>
+      <extensionElements>
+        <activiti:taskListener event="create"
+          class="com.reltio.workflow.activiti.service.TaskStartEventListener" />
+      </extensionElements>
+    </userTask>
+    <sequenceFlow id="flowNotifyRegionalRejectToEnd" sourceRef="notifyRequestorRegionalReject" targetRef="endRejectedRegional" />
+    <endEvent id="endRejectedRegional" name="Rejected at Regional Review" />
+
+    <!-- ═══════════════════════════════════════════════════════
+         STEP 1 — ROLE_DATASTEWARD
+         ═══════════════════════════════════════════════════════ -->
+    <userTask id="step1Review" name="Step 1 Review (Data Steward)"
+              activiti:dueDate="P2D"
+              activiti:candidateGroups="ROLE_DATASTEWARD">
+      <documentation>First-line review of the Location change request. A comment is mandatory for every decision (Accept, Reject, or Send Back).</documentation>
+      <extensionElements>
+        <activiti:formProperty id="decision" name="Decision" type="enum" required="true">
+          <activiti:value id="accept" name="Accept" commentRequired="true" />
+          <activiti:value id="reject" name="Reject" commentRequired="true" />
+          <activiti:value id="sendBack" name="Send Back" commentRequired="true" />
+        </activiti:formProperty>
+        <activiti:formProperty id="comment" name="Comment" type="string" required="true" />
+        <activiti:formProperty id="accessTypes" name="AccessTypes" type="string"
+          default="ACCEPT_CHANGE_REQUEST" writable="false" />
+        <activiti:formProperty id="validator" name="Validator" type="string"
+          default="com.reltio.workflow.core.task.validator.DataChangeRequestValidator" writable="false" />
+        <activiti:formProperty id="notificationOnAssignmentEnabled" name="NotificationOnAssignmentEnabled"
+          type="boolean" default="true" writable="false" />
+        <activiti:formProperty id="notificationOnCompletionEnabled" name="NotificationOnCompletionEnabled"
+          type="boolean" default="true" writable="false" />
+        <activiti:taskListener event="create"
+          class="com.reltio.workflow.activiti.service.TaskStartEventListener" />
+        <activiti:taskListener event="create"
+          class="com.reltio.workflow.activiti.service.DCRTypeTaskListener" />
+        <activiti:taskListener event="assignment"
+          class="com.reltio.workflow.activiti.service.TaskAssignmentEventListener" />
+      </extensionElements>
+    </userTask>
+    <sequenceFlow id="flowStep1ToGateway" sourceRef="step1Review" targetRef="step1Gateway" />
+
+    <exclusiveGateway id="step1Gateway" name="Step 1 Decision" />
+    <sequenceFlow id="flowStep1Accept" sourceRef="step1Gateway" targetRef="step2Review">
+      <conditionExpression xsi:type="tFormalExpression">${decision=='accept'}</conditionExpression>
+    </sequenceFlow>
+    <sequenceFlow id="flowStep1Reject" sourceRef="step1Gateway" targetRef="rejectDcrStep1">
+      <conditionExpression xsi:type="tFormalExpression">${decision=='reject'}</conditionExpression>
+    </sequenceFlow>
+    <sequenceFlow id="flowStep1SendBack" sourceRef="step1Gateway" targetRef="clarification">
+      <conditionExpression xsi:type="tFormalExpression">${decision=='sendBack'}</conditionExpression>
+    </sequenceFlow>
+
+    <userTask id="clarification" name="Provide Clarification" activiti:assignee="${requestor}"
+              activiti:dueDate="P2D">
+      <documentation>Routed back to the requestor with the Step 1 reviewer's mandatory comment, so the DCR can be clarified or corrected before re-review.</documentation>
+      <extensionElements>
+        <activiti:formProperty id="decision" name="Decision" type="enum" default="resubmit" required="true">
+          <activiti:value id="resubmit" name="Resubmit" />
+        </activiti:formProperty>
+        <activiti:taskListener event="create"
+          class="com.reltio.workflow.activiti.service.TaskStartEventListener" />
+      </extensionElements>
+    </userTask>
+    <sequenceFlow id="flowClarificationToStep1" sourceRef="clarification" targetRef="step1Review" />
+
+    <serviceTask id="rejectDcrStep1" name="Reject DCR (Step 1)"
+      activiti:class="com.reltio.workflow.external.services.ChangeRequest3rdPartyReject" />
+    <sequenceFlow id="flowRejectStep1ToNotify" sourceRef="rejectDcrStep1" targetRef="notifyRequestorStep1Reject" />
+
+    <userTask id="notifyRequestorStep1Reject" name="Requestor Notified (Step 1 Reject)"
+              activiti:assignee="${requestor}">
+      <documentation>Informs the requestor that the DCR was rejected at Step 1, carrying the reviewer's mandatory comment.</documentation>
+      <extensionElements>
+        <activiti:taskListener event="create"
+          class="com.reltio.workflow.activiti.service.TaskStartEventListener" />
+      </extensionElements>
+    </userTask>
+    <sequenceFlow id="flowNotifyStep1RejectToEnd" sourceRef="notifyRequestorStep1Reject" targetRef="endRejectedStep1" />
+    <endEvent id="endRejectedStep1" name="Rejected at Step 1" />
+
+    <!-- ═══════════════════════════════════════════════════════
+         STEP 2 — ROLE_API
+         ═══════════════════════════════════════════════════════ -->
+    <userTask id="step2Review" name="Step 2 Review (API)"
+              activiti:dueDate="P2D"
+              activiti:candidateGroups="ROLE_API">
+      <documentation>Second-line review of the Location change request. A comment is mandatory for every decision (Accept, Reject, or Send Back).</documentation>
+      <extensionElements>
+        <activiti:formProperty id="decision" name="Decision" type="enum" required="true">
+          <activiti:value id="accept" name="Accept" commentRequired="true" />
+          <activiti:value id="reject" name="Reject" commentRequired="true" />
+          <activiti:value id="sendBack" name="Send Back" commentRequired="true" />
+        </activiti:formProperty>
+        <activiti:formProperty id="comment" name="Comment" type="string" required="true" />
+        <activiti:formProperty id="accessTypes" name="AccessTypes" type="string"
+          default="ACCEPT_CHANGE_REQUEST" writable="false" />
+        <activiti:formProperty id="validator" name="Validator" type="string"
+          default="com.reltio.workflow.core.task.validator.DataChangeRequestValidator" writable="false" />
+        <activiti:formProperty id="notificationOnAssignmentEnabled" name="NotificationOnAssignmentEnabled"
+          type="boolean" default="true" writable="false" />
+        <activiti:formProperty id="notificationOnCompletionEnabled" name="NotificationOnCompletionEnabled"
+          type="boolean" default="true" writable="false" />
+        <activiti:taskListener event="create"
+          class="com.reltio.workflow.activiti.service.TaskStartEventListener" />
+        <activiti:taskListener event="create"
+          class="com.reltio.workflow.activiti.service.DCRTypeTaskListener" />
+        <activiti:taskListener event="assignment"
+          class="com.reltio.workflow.activiti.service.TaskAssignmentEventListener" />
+      </extensionElements>
+    </userTask>
+    <sequenceFlow id="flowStep2ToGateway" sourceRef="step2Review" targetRef="step2Gateway" />
+
+    <exclusiveGateway id="step2Gateway" name="Step 2 Decision" />
+    <sequenceFlow id="flowStep2Accept" sourceRef="step2Gateway" targetRef="step3Review">
+      <conditionExpression xsi:type="tFormalExpression">${decision=='accept'}</conditionExpression>
+    </sequenceFlow>
+    <sequenceFlow id="flowStep2Reject" sourceRef="step2Gateway" targetRef="rejectDcrStep2">
+      <conditionExpression xsi:type="tFormalExpression">${decision=='reject'}</conditionExpression>
+    </sequenceFlow>
+    <sequenceFlow id="flowStep2SendBack" sourceRef="step2Gateway" targetRef="step1Review">
+      <conditionExpression xsi:type="tFormalExpression">${decision=='sendBack'}</conditionExpression>
+    </sequenceFlow>
+
+    <serviceTask id="rejectDcrStep2" name="Reject DCR (Step 2)"
+      activiti:class="com.reltio.workflow.external.services.ChangeRequest3rdPartyReject" />
+    <sequenceFlow id="flowRejectStep2ToNotify" sourceRef="rejectDcrStep2" targetRef="notifyRequestorStep2Reject" />
+
+    <userTask id="notifyRequestorStep2Reject" name="Requestor Notified (Step 2 Reject)"
+              activiti:assignee="${requestor}">
+      <documentation>Informs the requestor that the DCR was rejected at Step 2, carrying the reviewer's mandatory comment.</documentation>
+      <extensionElements>
+        <activiti:taskListener event="create"
+          class="com.reltio.workflow.activiti.service.TaskStartEventListener" />
+      </extensionElements>
+    </userTask>
+    <sequenceFlow id="flowNotifyStep2RejectToEnd" sourceRef="notifyRequestorStep2Reject" targetRef="endRejectedStep2" />
+    <endEvent id="endRejectedStep2" name="Rejected at Step 2" />
+
+    <!-- ═══════════════════════════════════════════════════════
+         STEP 3 — ROLE_ADMIN (final approval)
+         ═══════════════════════════════════════════════════════ -->
+    <userTask id="step3Review" name="Step 3 Review (Admin)"
+              activiti:dueDate="P2D"
+              activiti:candidateGroups="ROLE_ADMIN">
+      <documentation>Final review of the Location change request. A comment is mandatory for every decision (Accept, Reject, or Send Back).</documentation>
+      <extensionElements>
+        <activiti:formProperty id="decision" name="Decision" type="enum" required="true">
+          <activiti:value id="accept" name="Accept" commentRequired="true" />
+          <activiti:value id="reject" name="Reject" commentRequired="true" />
+          <activiti:value id="sendBack" name="Send Back" commentRequired="true" />
+        </activiti:formProperty>
+        <activiti:formProperty id="comment" name="Comment" type="string" required="true" />
+        <activiti:formProperty id="accessTypes" name="AccessTypes" type="string"
+          default="ACCEPT_CHANGE_REQUEST" writable="false" />
+        <activiti:formProperty id="validator" name="Validator" type="string"
+          default="com.reltio.workflow.core.task.validator.DataChangeRequestValidator" writable="false" />
+        <activiti:formProperty id="notificationOnAssignmentEnabled" name="NotificationOnAssignmentEnabled"
+          type="boolean" default="true" writable="false" />
+        <activiti:formProperty id="notificationOnCompletionEnabled" name="NotificationOnCompletionEnabled"
+          type="boolean" default="true" writable="false" />
+        <activiti:taskListener event="create"
+          class="com.reltio.workflow.activiti.service.TaskStartEventListener" />
+        <activiti:taskListener event="create"
+          class="com.reltio.workflow.activiti.service.DCRTypeTaskListener" />
+        <activiti:taskListener event="assignment"
+          class="com.reltio.workflow.activiti.service.TaskAssignmentEventListener" />
+      </extensionElements>
+    </userTask>
+    <sequenceFlow id="flowStep3ToGateway" sourceRef="step3Review" targetRef="step3Gateway" />
+
+    <exclusiveGateway id="step3Gateway" name="Step 3 Decision" />
+    <sequenceFlow id="flowStep3Accept" sourceRef="step3Gateway" targetRef="applyDcr">
+      <conditionExpression xsi:type="tFormalExpression">${decision=='accept'}</conditionExpression>
+    </sequenceFlow>
+    <sequenceFlow id="flowStep3Reject" sourceRef="step3Gateway" targetRef="rejectDcrStep3">
+      <conditionExpression xsi:type="tFormalExpression">${decision=='reject'}</conditionExpression>
+    </sequenceFlow>
+    <sequenceFlow id="flowStep3SendBack" sourceRef="step3Gateway" targetRef="step2Review">
+      <conditionExpression xsi:type="tFormalExpression">${decision=='sendBack'}</conditionExpression>
+    </sequenceFlow>
+
+    <serviceTask id="applyDcr" name="Apply DCR"
+      activiti:class="com.reltio.workflow.external.services.ChangeRequest3rdPartyApply" />
+    <sequenceFlow id="flowApplyToEnd" sourceRef="applyDcr" targetRef="endApproved" />
+    <endEvent id="endApproved" name="Approved" />
+
+    <serviceTask id="rejectDcrStep3" name="Reject DCR (Step 3)"
+      activiti:class="com.reltio.workflow.external.services.ChangeRequest3rdPartyReject" />
+    <sequenceFlow id="flowRejectStep3ToNotify" sourceRef="rejectDcrStep3" targetRef="notifyRequestorStep3Reject" />
+
+    <userTask id="notifyRequestorStep3Reject" name="Requestor Notified (Step 3 Reject)"
+              activiti:assignee="${requestor}">
+      <documentation>Informs the requestor that the DCR was rejected at Step 3, carrying the reviewer's mandatory comment.</documentation>
+      <extensionElements>
+        <activiti:taskListener event="create"
+          class="com.reltio.workflow.activiti.service.TaskStartEventListener" />
+      </extensionElements>
+    </userTask>
+    <sequenceFlow id="flowNotifyStep3RejectToEnd" sourceRef="notifyRequestorStep3Reject" targetRef="endRejectedStep3" />
+    <endEvent id="endRejectedStep3" name="Rejected at Step 3" />
+
+  </process>
+
+  <bpmndi:BPMNDiagram id="BPMNDiagram_locationThreeStepApproval">
+    <bpmndi:BPMNPlane id="BPMNPlane_locationThreeStepApproval" bpmnElement="locationThreeStepApproval">
+
+      <bpmndi:BPMNShape id="shape_start" bpmnElement="start">
+        <omgdc:Bounds x="20" y="300" width="36" height="36" />
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNShape id="shape_captureRequestor" bpmnElement="captureRequestor">
+        <omgdc:Bounds x="100" y="278" width="110" height="80" />
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNShape id="shape_step1Review" bpmnElement="step1Review">
+        <omgdc:Bounds x="260" y="278" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="shape_step1Gateway" bpmnElement="step1Gateway" isMarkerVisible="true">
+        <omgdc:Bounds x="420" y="298" width="40" height="40" />
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNShape id="shape_clarification" bpmnElement="clarification">
+        <omgdc:Bounds x="260" y="430" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="shape_rejectDcrStep1" bpmnElement="rejectDcrStep1">
+        <omgdc:Bounds x="500" y="430" width="110" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="shape_notifyRequestorStep1Reject" bpmnElement="notifyRequestorStep1Reject">
+        <omgdc:Bounds x="660" y="430" width="140" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="shape_endRejectedStep1" bpmnElement="endRejectedStep1">
+        <omgdc:Bounds x="850" y="452" width="36" height="36" />
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNShape id="shape_step2Review" bpmnElement="step2Review">
+        <omgdc:Bounds x="540" y="278" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="shape_step2Gateway" bpmnElement="step2Gateway" isMarkerVisible="true">
+        <omgdc:Bounds x="700" y="298" width="40" height="40" />
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNShape id="shape_rejectDcrStep2" bpmnElement="rejectDcrStep2">
+        <omgdc:Bounds x="700" y="140" width="110" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="shape_notifyRequestorStep2Reject" bpmnElement="notifyRequestorStep2Reject">
+        <omgdc:Bounds x="860" y="140" width="140" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="shape_endRejectedStep2" bpmnElement="endRejectedStep2">
+        <omgdc:Bounds x="1050" y="162" width="36" height="36" />
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNShape id="shape_step3Review" bpmnElement="step3Review">
+        <omgdc:Bounds x="820" y="278" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="shape_step3Gateway" bpmnElement="step3Gateway" isMarkerVisible="true">
+        <omgdc:Bounds x="990" y="298" width="40" height="40" />
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNShape id="shape_applyDcr" bpmnElement="applyDcr">
+        <omgdc:Bounds x="1080" y="278" width="110" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="shape_endApproved" bpmnElement="endApproved">
+        <omgdc:Bounds x="1240" y="300" width="36" height="36" />
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNShape id="shape_rejectDcrStep3" bpmnElement="rejectDcrStep3">
+        <omgdc:Bounds x="980" y="430" width="110" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="shape_notifyRequestorStep3Reject" bpmnElement="notifyRequestorStep3Reject">
+        <omgdc:Bounds x="1140" y="430" width="140" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="shape_endRejectedStep3" bpmnElement="endRejectedStep3">
+        <omgdc:Bounds x="1330" y="452" width="36" height="36" />
+      </bpmndi:BPMNShape>
+
+      <!-- Edges -->
+      <bpmndi:BPMNEdge id="edge_flowStartToCapture" bpmnElement="flowStartToCapture">
+        <omgdi:waypoint x="56" y="318" />
+        <omgdi:waypoint x="100" y="318" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="edge_flowCaptureToStep1" bpmnElement="flowCaptureToStep1">
+        <omgdi:waypoint x="210" y="318" />
+        <omgdi:waypoint x="260" y="318" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="edge_flowStep1ToGateway" bpmnElement="flowStep1ToGateway">
+        <omgdi:waypoint x="380" y="318" />
+        <omgdi:waypoint x="420" y="318" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="edge_flowStep1Accept" bpmnElement="flowStep1Accept">
+        <omgdi:waypoint x="460" y="318" />
+        <omgdi:waypoint x="540" y="318" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="edge_flowStep1SendBack" bpmnElement="flowStep1SendBack">
+        <omgdi:waypoint x="440" y="338" />
+        <omgdi:waypoint x="440" y="470" />
+        <omgdi:waypoint x="380" y="470" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="edge_flowClarificationToStep1" bpmnElement="flowClarificationToStep1">
+        <omgdi:waypoint x="320" y="430" />
+        <omgdi:waypoint x="320" y="358" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="edge_flowStep1Reject" bpmnElement="flowStep1Reject">
+        <omgdi:waypoint x="440" y="338" />
+        <omgdi:waypoint x="440" y="470" />
+        <omgdi:waypoint x="500" y="470" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="edge_flowRejectStep1ToNotify" bpmnElement="flowRejectStep1ToNotify">
+        <omgdi:waypoint x="610" y="470" />
+        <omgdi:waypoint x="660" y="470" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="edge_flowNotifyStep1RejectToEnd" bpmnElement="flowNotifyStep1RejectToEnd">
+        <omgdi:waypoint x="800" y="470" />
+        <omgdi:waypoint x="850" y="470" />
+      </bpmndi:BPMNEdge>
+
+      <bpmndi:BPMNEdge id="edge_flowStep2ToGateway" bpmnElement="flowStep2ToGateway">
+        <omgdi:waypoint x="660" y="318" />
+        <omgdi:waypoint x="700" y="318" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="edge_flowStep2Accept" bpmnElement="flowStep2Accept">
+        <omgdi:waypoint x="740" y="318" />
+        <omgdi:waypoint x="820" y="318" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="edge_flowStep2Reject" bpmnElement="flowStep2Reject">
+        <omgdi:waypoint x="720" y="298" />
+        <omgdi:waypoint x="720" y="220" />
+        <omgdi:waypoint x="700" y="180" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="edge_flowRejectStep2ToNotify" bpmnElement="flowRejectStep2ToNotify">
+        <omgdi:waypoint x="810" y="180" />
+        <omgdi:waypoint x="860" y="180" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="edge_flowNotifyStep2RejectToEnd" bpmnElement="flowNotifyStep2RejectToEnd">
+        <omgdi:waypoint x="1000" y="180" />
+        <omgdi:waypoint x="1050" y="180" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="edge_flowStep2SendBack" bpmnElement="flowStep2SendBack">
+        <omgdi:waypoint x="720" y="338" />
+        <omgdi:waypoint x="720" y="500" />
+        <omgdi:waypoint x="320" y="500" />
+        <omgdi:waypoint x="320" y="358" />
+      </bpmndi:BPMNEdge>
+
+      <bpmndi:BPMNEdge id="edge_flowStep3ToGateway" bpmnElement="flowStep3ToGateway">
+        <omgdi:waypoint x="940" y="318" />
+        <omgdi:waypoint x="990" y="318" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="edge_flowStep3Accept" bpmnElement="flowStep3Accept">
+        <omgdi:waypoint x="1030" y="318" />
+        <omgdi:waypoint x="1080" y="318" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="edge_flowApplyToEnd" bpmnElement="flowApplyToEnd">
+        <omgdi:waypoint x="1190" y="318" />
+        <omgdi:waypoint x="1240" y="318" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="edge_flowStep3Reject" bpmnElement="flowStep3Reject">
+        <omgdi:waypoint x="1010" y="338" />
+        <omgdi:waypoint x="1010" y="470" />
+        <omgdi:waypoint x="980" y="470" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="edge_flowRejectStep3ToNotify" bpmnElement="flowRejectStep3ToNotify">
+        <omgdi:waypoint x="1090" y="470" />
+        <omgdi:waypoint x="1140" y="470" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="edge_flowNotifyStep3RejectToEnd" bpmnElement="flowNotifyStep3RejectToEnd">
+        <omgdi:waypoint x="1280" y="470" />
+        <omgdi:waypoint x="1330" y="470" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="edge_flowStep3SendBack" bpmnElement="flowStep3SendBack">
+        <omgdi:waypoint x="1010" y="298" />
+        <omgdi:waypoint x="1010" y="220" />
+        <omgdi:waypoint x="600" y="220" />
+        <omgdi:waypoint x="600" y="278" />
+      </bpmndi:BPMNEdge>
+
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+
+</definitions>
