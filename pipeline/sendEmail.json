@@ -4,19 +4,19 @@
       "to": [EMAIL_LIST],
       "bcc": [
         {
-          "email": "ivan.churyumov+jars@reltio.com",
-          "name": "Ivan Churyumov"
+          "email": "notify@example.com",
+          "name": "Build Notifications"
         },
         {
-          "email": "yury.timofeev+jars@reltio.com",
-          "name": "Yury Timofeev"
+          "email": "team@example.com",
+          "name": "Workflow Team"
         }
       ]
     }
   ],
   "from": {
-    "email": "workflow-jar-builds@reltio.com",
-    "name": "Reltio Workflow Jar Builds"
+    "email": "workflow-jar-builds@example.com",
+    "name": "Workflow Jar Builds"
   },
   "subject": "EMAIL_SUBJECT",
   "content": [
