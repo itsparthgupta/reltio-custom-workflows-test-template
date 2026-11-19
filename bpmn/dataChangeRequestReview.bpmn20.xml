@@ -1,271 +1,347 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
-  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-  xmlns:xsd="http://www.w3.org/2001/XMLSchema"
-  xmlns:activiti="http://activiti.org/bpmn"
-  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
-  xmlns:omgdc="http://www.omg.org/spec/DD/20100524/DC"
-  xmlns:omgdi="http://www.omg.org/spec/DD/20100524/DI"
-  typeLanguage="http://www.w3.org/2001/XMLSchema"
-  expressionLanguage="http://www.w3.org/1999/XPath"
-  targetNamespace="http://www.activiti.org/test">
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+             xmlns:activiti="http://activiti.org/bpmn"
+             xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+             xmlns:omgdc="http://www.omg.org/spec/DD/20100524/DC"
+             xmlns:omgdi="http://www.omg.org/spec/DD/20100524/DI"
+             typeLanguage="http://www.w3.org/2001/XMLSchema"
+             expressionLanguage="http://www.w3.org/1999/XPath"
+             targetNamespace="http://www.reltio.com/bpmn">
 
-  <process id="dataChangeRequestReview" name="DCR Review" isExecutable="true">
+    <process id="dataChangeRequestReview"
+             name="DCR Review (Contact triple-step)"
+             isExecutable="true">
 
-    <startEvent id="startevent1" name="Start">
-      <extensionElements>
-        <activiti:executionListener event="start"
-          class="com.reltio.workflow.activiti.service.DCRHasChangesListener" />
-      </extensionElements>
-    </startEvent>
+        <dataObject id="manualStart" name="manualStart" itemSubjectRef="xsd:boolean">
+            <extensionElements><activiti:value>false</activiti:value></extensionElements>
+        </dataObject>
+        <dataObject id="deleted" name="deleted" itemSubjectRef="xsd:boolean">
+            <extensionElements><activiti:value>false</activiti:value></extensionElements>
+        </dataObject>
 
-    <serviceTask id="resolveEntityType" name="Resolve entity type"
-      activiti:class="com.company.workflow.product.ResolveEntityType" />
+        <startEvent id="start" name="Start">
+            <extensionElements>
+                <activiti:executionListener event="start"
+                    class="com.reltio.workflow.activiti.service.DCRHasChangesListener"/>
+            </extensionElements>
+        </startEvent>
 
-    <exclusiveGateway id="entityTypeGate" name="Entity type?" default="flowStandardReview" />
+        <serviceTask id="resolveEntityType" name="Resolve contact-change context"
+                     activiti:class="com.company.workflow.contactdcr.ResolveContactChangeContext"/>
 
-    <serviceTask id="captureRequestor" name="Capture requestor"
-      activiti:class="com.company.workflow.product.CaptureRequestor" />
+        <exclusiveGateway id="entityTypeGate" name="Route by scope" default="flowStandardReview"/>
 
-    <userTask id="productReview" name="Product DCR Review" activiti:assignee="${dcrReviewer}"
-      activiti:candidateGroups="ROLE_API" activiti:dueDate="P2D">
-      <extensionElements>
-        <activiti:formProperty id="decision" name="Decision" type="enum" required="true" default="Approve">
-          <activiti:value id="Approve" name="Approve" />
-          <activiti:value id="Reject" name="Reject" commentRequired="true" />
-          <activiti:value id="BackToCreator" name="Need more information" commentRequired="true" />
-        </activiti:formProperty>
-        <activiti:formProperty id="accessTypes" name="AccessTypes" type="string" writable="false"
-          default="ACCEPT_CHANGE_REQUEST" />
-        <activiti:formProperty id="validator" name="Validator" type="string" writable="false"
-          default="com.reltio.workflow.core.task.validator.DataChangeRequestValidator" />
-        <activiti:formProperty id="notificationOnAssignmentEnabled" name="NotificationOnAssignmentEnabled"
-          type="boolean" writable="false" default="true" />
-        <activiti:formProperty id="notificationOnCompletionEnabled" name="NotificationOnCompletionEnabled"
-          type="boolean" writable="false" default="true" />
-        <activiti:taskListener event="create"
-          class="com.reltio.workflow.activiti.service.TaskStartEventListener" />
-        <activiti:taskListener event="create"
-          class="com.reltio.workflow.activiti.service.DCRTypeTaskListener" />
-        <activiti:taskListener event="assignment"
-          class="com.reltio.workflow.activiti.service.TaskAssignmentEventListener" />
-        <activiti:taskListener event="complete"
-          class="com.company.workflow.product.UpdateDcrReviewerListener" />
-      </extensionElements>
-    </userTask>
+        <!-- Individual / Organization email or address: 3 sequential approvals -->
+        <userTask id="contactApiReview" name="Contact Change – API Approval"
+                  activiti:dueDate="P2D"
+                  activiti:candidateGroups="ROLE_API">
+            <extensionElements>
+                <activiti:formProperty id="decision" name="Decision" type="enum" default="Approve" required="true">
+                    <activiti:value id="Approve" name="Approve"/>
+                    <activiti:value id="Reject" name="Reject" commentRequired="true"/>
+                </activiti:formProperty>
+                <activiti:formProperty id="accessTypes" name="AccessTypes" type="string"
+                    default="ACCEPT_CHANGE_REQUEST" writable="false"/>
+                <activiti:formProperty id="validator" name="Validator" type="string"
+                    default="com.reltio.workflow.core.task.validator.DataChangeRequestValidator" writable="false"/>
+                <activiti:formProperty id="notificationOnAssignmentEnabled" name="NotificationOnAssignmentEnabled"
+                    type="boolean" default="true" writable="false"/>
+                <activiti:formProperty id="notificationOnCompletionEnabled" name="NotificationOnCompletionEnabled"
+                    type="boolean" default="true" writable="false"/>
+                <activiti:taskListener event="create"
+                    class="com.reltio.workflow.activiti.service.TaskStartEventListener"/>
+                <activiti:taskListener event="create"
+                    class="com.reltio.workflow.activiti.service.DCRTypeTaskListener"/>
+                <activiti:taskListener event="assignment"
+                    class="com.reltio.workflow.activiti.service.TaskAssignmentEventListener"/>
+                <activiti:taskListener event="complete"
+                    class="com.company.workflow.contactdcr.ContactChangeApprovalAuditListener"/>
+            </extensionElements>
+        </userTask>
 
-    <exclusiveGateway id="productDecisionGateway" name="Product decision" default="flowProductReject" />
+        <exclusiveGateway id="contactApiGateway" name="API decision" default="flowContactApiReject"/>
 
-    <userTask id="clarification" name="Provide clarification" activiti:assignee="${requestor}"
-      activiti:candidateGroups="ROLE_INITIATE_CHANGE_REQUEST" activiti:dueDate="P2D">
-      <extensionElements>
-        <activiti:formProperty id="decision" name="Decision" type="enum" required="true" default="Suggest">
-          <activiti:value id="Suggest" name="Suggest" />
-        </activiti:formProperty>
-        <activiti:formProperty id="accessTypes" name="AccessTypes" type="string" writable="false"
-          default="ACCEPT_CHANGE_REQUEST" />
-        <activiti:formProperty id="validator" name="Validator" type="string" writable="false"
-          default="com.reltio.workflow.core.task.validator.DataChangeRequestValidator" />
-        <activiti:formProperty id="notificationOnAssignmentEnabled" name="NotificationOnAssignmentEnabled"
-          type="boolean" writable="false" default="true" />
-        <activiti:formProperty id="notificationOnCompletionEnabled" name="NotificationOnCompletionEnabled"
-          type="boolean" writable="false" default="true" />
-        <activiti:taskListener event="create"
-          class="com.reltio.workflow.activiti.service.TaskStartEventListener" />
-        <activiti:taskListener event="create"
-          class="com.reltio.workflow.activiti.service.DCRTypeTaskListener" />
-        <activiti:taskListener event="assignment"
-          class="com.reltio.workflow.activiti.service.TaskAssignmentEventListener" />
-      </extensionElements>
-    </userTask>
+        <userTask id="contactAdminReview1" name="Contact Change – Admin Approval (1)"
+                  activiti:dueDate="P2D"
+                  activiti:candidateGroups="ROLE_ADMIN">
+            <extensionElements>
+                <activiti:formProperty id="decision" name="Decision" type="enum" default="Approve" required="true">
+                    <activiti:value id="Approve" name="Approve"/>
+                    <activiti:value id="Reject" name="Reject" commentRequired="true"/>
+                </activiti:formProperty>
+                <activiti:formProperty id="accessTypes" name="AccessTypes" type="string"
+                    default="ACCEPT_CHANGE_REQUEST" writable="false"/>
+                <activiti:formProperty id="validator" name="Validator" type="string"
+                    default="com.reltio.workflow.core.task.validator.DataChangeRequestValidator" writable="false"/>
+                <activiti:formProperty id="notificationOnAssignmentEnabled" name="NotificationOnAssignmentEnabled"
+                    type="boolean" default="true" writable="false"/>
+                <activiti:formProperty id="notificationOnCompletionEnabled" name="NotificationOnCompletionEnabled"
+                    type="boolean" default="true" writable="false"/>
+                <activiti:taskListener event="create"
+                    class="com.reltio.workflow.activiti.service.TaskStartEventListener"/>
+                <activiti:taskListener event="create"
+                    class="com.reltio.workflow.activiti.service.DCRTypeTaskListener"/>
+                <activiti:taskListener event="assignment"
+                    class="com.reltio.workflow.activiti.service.TaskAssignmentEventListener"/>
+                <activiti:taskListener event="complete"
+                    class="com.company.workflow.contactdcr.ContactChangeApprovalAuditListener"/>
+            </extensionElements>
+        </userTask>
 
-    <userTask id="standardReview" name="DCR Review" activiti:candidateGroups="ROLE_DATASTEWARD"
-      activiti:dueDate="P2D">
-      <extensionElements>
-        <activiti:formProperty id="decision" name="Decision" type="enum" required="true" default="Approve">
-          <activiti:value id="Approve" name="Approve" />
-          <activiti:value id="Reject" name="Reject" commentRequired="true" />
-        </activiti:formProperty>
-        <activiti:formProperty id="accessTypes" name="AccessTypes" type="string" writable="false"
-          default="ACCEPT_CHANGE_REQUEST" />
-        <activiti:formProperty id="validator" name="Validator" type="string" writable="false"
-          default="com.reltio.workflow.core.task.validator.DataChangeRequestValidator" />
-        <activiti:formProperty id="notificationOnAssignmentEnabled" name="NotificationOnAssignmentEnabled"
-          type="boolean" writable="false" default="true" />
-        <activiti:formProperty id="notificationOnCompletionEnabled" name="NotificationOnCompletionEnabled"
-          type="boolean" writable="false" default="true" />
-        <activiti:taskListener event="create"
-          class="com.reltio.workflow.activiti.service.TaskStartEventListener" />
-        <activiti:taskListener event="create"
-          class="com.reltio.workflow.activiti.service.DCRTypeTaskListener" />
-      </extensionElements>
-    </userTask>
+        <exclusiveGateway id="contactAdminGateway1" name="Admin decision (1)" default="flowContactAdmin1Reject"/>
 
-    <exclusiveGateway id="standardDecisionGateway" name="Standard decision" default="flowStandardReject" />
+        <userTask id="contactAdminReview2" name="Contact Change – Admin Approval (2)"
+                  activiti:dueDate="P2D"
+                  activiti:candidateGroups="ROLE_ADMIN">
+            <extensionElements>
+                <activiti:formProperty id="decision" name="Decision" type="enum" default="Approve" required="true">
+                    <activiti:value id="Approve" name="Approve"/>
+                    <activiti:value id="Reject" name="Reject" commentRequired="true"/>
+                </activiti:formProperty>
+                <activiti:formProperty id="accessTypes" name="AccessTypes" type="string"
+                    default="ACCEPT_CHANGE_REQUEST" writable="false"/>
+                <activiti:formProperty id="validator" name="Validator" type="string"
+                    default="com.reltio.workflow.core.task.validator.DataChangeRequestValidator" writable="false"/>
+                <activiti:formProperty id="notificationOnAssignmentEnabled" name="NotificationOnAssignmentEnabled"
+                    type="boolean" default="true" writable="false"/>
+                <activiti:formProperty id="notificationOnCompletionEnabled" name="NotificationOnCompletionEnabled"
+                    type="boolean" default="true" writable="false"/>
+                <activiti:taskListener event="create"
+                    class="com.reltio.workflow.activiti.service.TaskStartEventListener"/>
+                <activiti:taskListener event="create"
+                    class="com.reltio.workflow.activiti.service.DCRTypeTaskListener"/>
+                <activiti:taskListener event="assignment"
+                    class="com.reltio.workflow.activiti.service.TaskAssignmentEventListener"/>
+                <activiti:taskListener event="complete"
+                    class="com.company.workflow.contactdcr.ContactChangeApprovalAuditListener"/>
+            </extensionElements>
+        </userTask>
 
-    <serviceTask id="approveService" name="Approve"
-      activiti:class="com.reltio.workflow.activiti.service.ChangeRequestApply" />
-    <serviceTask id="rejectService" name="Reject"
-      activiti:class="com.reltio.workflow.activiti.service.ChangeRequestReject" />
-    <endEvent id="endevent1" name="End" />
+        <exclusiveGateway id="contactAdminGateway2" name="Admin decision (2)" default="flowContactAdmin2Reject"/>
 
-    <sequenceFlow id="flowStartToResolve" sourceRef="startevent1" targetRef="resolveEntityType" />
-    <sequenceFlow id="flowResolveToGate" sourceRef="resolveEntityType" targetRef="entityTypeGate" />
+        <serviceTask id="contactApplyDcr" name="Apply contact DCR"
+                     activiti:class="com.company.workflow.contactdcr.ContactChangeApply"/>
+        <serviceTask id="contactRejectDcr" name="Reject contact DCR"
+                     activiti:class="com.company.workflow.contactdcr.ContactChangeReject"/>
 
-    <sequenceFlow id="flowProductPath" sourceRef="entityTypeGate" targetRef="captureRequestor">
-      <conditionExpression xsi:type="tFormalExpression"><![CDATA[${entityType == 'configuration/entityTypes/Product'}]]></conditionExpression>
-    </sequenceFlow>
-    <sequenceFlow id="flowStandardReview" sourceRef="entityTypeGate" targetRef="standardReview" />
+        <!-- Employee: step 1 -->
+        <userTask id="employeeFirstReview" name="Employee Change – First Approval"
+                  activiti:dueDate="P2D"
+                  activiti:candidateGroups="ROLE_REVIEWER">
+            <extensionElements>
+                <activiti:formProperty id="decision" name="Decision" type="enum" default="Approve" required="true">
+                    <activiti:value id="Approve" name="Approve"/>
+                    <activiti:value id="Reject" name="Reject" commentRequired="true"/>
+                </activiti:formProperty>
+                <activiti:formProperty id="accessTypes" name="AccessTypes" type="string"
+                    default="ACCEPT_CHANGE_REQUEST" writable="false"/>
+                <activiti:formProperty id="validator" name="Validator" type="string"
+                    default="com.reltio.workflow.core.task.validator.DataChangeRequestValidator" writable="false"/>
+                <activiti:formProperty id="notificationOnAssignmentEnabled" name="NotificationOnAssignmentEnabled"
+                    type="boolean" default="true" writable="false"/>
+                <activiti:formProperty id="notificationOnCompletionEnabled" name="NotificationOnCompletionEnabled"
+                    type="boolean" default="true" writable="false"/>
+                <activiti:taskListener event="create"
+                    class="com.reltio.workflow.activiti.service.TaskStartEventListener"/>
+                <activiti:taskListener event="create"
+                    class="com.reltio.workflow.activiti.service.DCRTypeTaskListener"/>
+                <activiti:taskListener event="assignment"
+                    class="com.reltio.workflow.activiti.service.TaskAssignmentEventListener"/>
+            </extensionElements>
+        </userTask>
 
-    <sequenceFlow id="flowCaptureToProductReview" sourceRef="captureRequestor" targetRef="productReview" />
-    <sequenceFlow id="flowProductReviewToGateway" sourceRef="productReview" targetRef="productDecisionGateway" />
+        <exclusiveGateway id="employeeGateway1" name="First decision" default="flowEmp1Reject"/>
 
-    <sequenceFlow id="flowProductApprove" sourceRef="productDecisionGateway" targetRef="approveService">
-      <conditionExpression xsi:type="tFormalExpression"><![CDATA[${decision=='Approve'}]]></conditionExpression>
-    </sequenceFlow>
-    <sequenceFlow id="flowProductReject" sourceRef="productDecisionGateway" targetRef="rejectService" />
-    <sequenceFlow id="flowProductBackToCreator" sourceRef="productDecisionGateway" targetRef="clarification">
-      <conditionExpression xsi:type="tFormalExpression"><![CDATA[${decision=='BackToCreator'}]]></conditionExpression>
-    </sequenceFlow>
+        <userTask id="employeeSecondReview" name="Employee Change – Second Approval"
+                  activiti:dueDate="P2D"
+                  activiti:candidateGroups="ROLE_ADMIN">
+            <extensionElements>
+                <activiti:formProperty id="decision" name="Decision" type="enum" default="Approve" required="true">
+                    <activiti:value id="Approve" name="Approve"/>
+                    <activiti:value id="Reject" name="Reject" commentRequired="true"/>
+                </activiti:formProperty>
+                <activiti:formProperty id="accessTypes" name="AccessTypes" type="string"
+                    default="ACCEPT_CHANGE_REQUEST" writable="false"/>
+                <activiti:formProperty id="validator" name="Validator" type="string"
+                    default="com.reltio.workflow.core.task.validator.DataChangeRequestValidator" writable="false"/>
+                <activiti:formProperty id="notificationOnAssignmentEnabled" name="NotificationOnAssignmentEnabled"
+                    type="boolean" default="true" writable="false"/>
+                <activiti:formProperty id="notificationOnCompletionEnabled" name="NotificationOnCompletionEnabled"
+                    type="boolean" default="true" writable="false"/>
+                <activiti:taskListener event="create"
+                    class="com.reltio.workflow.activiti.service.TaskStartEventListener"/>
+                <activiti:taskListener event="create"
+                    class="com.reltio.workflow.activiti.service.DCRTypeTaskListener"/>
+                <activiti:taskListener event="assignment"
+                    class="com.reltio.workflow.activiti.service.TaskAssignmentEventListener"/>
+            </extensionElements>
+        </userTask>
 
-    <sequenceFlow id="flowClarificationToProductReview" sourceRef="clarification" targetRef="productReview" />
+        <exclusiveGateway id="employeeGateway2" name="Second decision" default="flowEmp2Reject"/>
 
-    <sequenceFlow id="flowStandardReviewToGateway" sourceRef="standardReview" targetRef="standardDecisionGateway" />
-    <sequenceFlow id="flowStandardApprove" sourceRef="standardDecisionGateway" targetRef="approveService">
-      <conditionExpression xsi:type="tFormalExpression"><![CDATA[${decision=='Approve'}]]></conditionExpression>
-    </sequenceFlow>
-    <sequenceFlow id="flowStandardReject" sourceRef="standardDecisionGateway" targetRef="rejectService" />
+        <userTask id="standardDcrReview" name="Data Change Review"
+                  activiti:dueDate="P2D"
+                  activiti:candidateGroups="ROLE_REVIEWER">
+            <extensionElements>
+                <activiti:formProperty id="decision" name="Decision" type="enum" default="Approve" required="true">
+                    <activiti:value id="Approve" name="Approve"/>
+                    <activiti:value id="Reject" name="Reject" commentRequired="true"/>
+                </activiti:formProperty>
+                <activiti:formProperty id="accessTypes" name="AccessTypes" type="string"
+                    default="ACCEPT_CHANGE_REQUEST" writable="false"/>
+                <activiti:formProperty id="validator" name="Validator" type="string"
+                    default="com.reltio.workflow.core.task.validator.DataChangeRequestValidator" writable="false"/>
+                <activiti:formProperty id="notificationOnAssignmentEnabled" name="NotificationOnAssignmentEnabled"
+                    type="boolean" default="true" writable="false"/>
+                <activiti:formProperty id="notificationOnCompletionEnabled" name="NotificationOnCompletionEnabled"
+                    type="boolean" default="true" writable="false"/>
+                <activiti:taskListener event="create"
+                    class="com.reltio.workflow.activiti.service.TaskStartEventListener"/>
+                <activiti:taskListener event="create"
+                    class="com.reltio.workflow.activiti.service.DCRTypeTaskListener"/>
+                <activiti:taskListener event="assignment"
+                    class="com.reltio.workflow.activiti.service.TaskAssignmentEventListener"/>
+            </extensionElements>
+        </userTask>
 
-    <sequenceFlow id="flowApproveToEnd" sourceRef="approveService" targetRef="endevent1" />
-    <sequenceFlow id="flowRejectToEnd" sourceRef="rejectService" targetRef="endevent1" />
+        <exclusiveGateway id="standardGateway" name="Standard decision" default="flowStdReject"/>
 
-    <dataObject id="manualStart" name="manualStart" itemSubjectRef="xsd:boolean">
-      <extensionElements>
-        <activiti:value>false</activiti:value>
-      </extensionElements>
-    </dataObject>
-    <dataObject id="deleted" name="deleted" itemSubjectRef="xsd:boolean">
-      <extensionElements>
-        <activiti:value>false</activiti:value>
-      </extensionElements>
-    </dataObject>
-    <dataObject id="dcrReviewer" name="dcrReviewer" itemSubjectRef="xsd:string">
-      <extensionElements>
-        <activiti:value></activiti:value>
-      </extensionElements>
-    </dataObject>
-  </process>
+        <serviceTask id="applyDcr" name="Apply DCR"
+                     activiti:class="com.reltio.workflow.activiti.service.ChangeRequestApply"/>
+        <serviceTask id="rejectDcr" name="Reject DCR"
+                     activiti:class="com.reltio.workflow.activiti.service.ChangeRequestReject"/>
 
-  <bpmndi:BPMNDiagram id="BPMNDiagram_dataChangeRequestReview">
-    <bpmndi:BPMNPlane id="BPMNPlane_dataChangeRequestReview" bpmnElement="dataChangeRequestReview">
-      <bpmndi:BPMNShape id="BPMNShape_startevent1" bpmnElement="startevent1">
-        <omgdc:Bounds x="100" y="200" width="36" height="36" />
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="BPMNShape_resolveEntityType" bpmnElement="resolveEntityType">
-        <omgdc:Bounds x="180" y="178" width="100" height="80" />
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="BPMNShape_entityTypeGate" bpmnElement="entityTypeGate" isMarkerVisible="true">
-        <omgdc:Bounds x="320" y="193" width="50" height="50" />
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="BPMNShape_captureRequestor" bpmnElement="captureRequestor">
-        <omgdc:Bounds x="420" y="80" width="100" height="80" />
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="BPMNShape_productReview" bpmnElement="productReview">
-        <omgdc:Bounds x="560" y="80" width="100" height="80" />
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="BPMNShape_productDecisionGateway" bpmnElement="productDecisionGateway" isMarkerVisible="true">
-        <omgdc:Bounds x="700" y="95" width="50" height="50" />
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="BPMNShape_clarification" bpmnElement="clarification">
-        <omgdc:Bounds x="560" y="0" width="100" height="80" />
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="BPMNShape_standardReview" bpmnElement="standardReview">
-        <omgdc:Bounds x="420" y="280" width="100" height="80" />
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="BPMNShape_standardDecisionGateway" bpmnElement="standardDecisionGateway" isMarkerVisible="true">
-        <omgdc:Bounds x="560" y="295" width="50" height="50" />
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="BPMNShape_approveService" bpmnElement="approveService">
-        <omgdc:Bounds x="820" y="178" width="100" height="80" />
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="BPMNShape_rejectService" bpmnElement="rejectService">
-        <omgdc:Bounds x="820" y="300" width="100" height="80" />
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="BPMNShape_endevent1" bpmnElement="endevent1">
-        <omgdc:Bounds x="980" y="200" width="36" height="36" />
-      </bpmndi:BPMNShape>
+        <endEvent id="endApproved" name="Approved"/>
+        <endEvent id="endRejected" name="Rejected"/>
 
-      <bpmndi:BPMNEdge id="BPMNEdge_flowStartToResolve" bpmnElement="flowStartToResolve">
-        <omgdi:waypoint x="136" y="218" />
-        <omgdi:waypoint x="180" y="218" />
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="BPMNEdge_flowResolveToGate" bpmnElement="flowResolveToGate">
-        <omgdi:waypoint x="280" y="218" />
-        <omgdi:waypoint x="320" y="218" />
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="BPMNEdge_flowProductPath" bpmnElement="flowProductPath">
-        <omgdi:waypoint x="345" y="193" />
-        <omgdi:waypoint x="345" y="120" />
-        <omgdi:waypoint x="420" y="120" />
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="BPMNEdge_flowStandardReview" bpmnElement="flowStandardReview">
-        <omgdi:waypoint x="345" y="243" />
-        <omgdi:waypoint x="345" y="320" />
-        <omgdi:waypoint x="420" y="320" />
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="BPMNEdge_flowCaptureToProductReview" bpmnElement="flowCaptureToProductReview">
-        <omgdi:waypoint x="520" y="120" />
-        <omgdi:waypoint x="560" y="120" />
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="BPMNEdge_flowProductReviewToGateway" bpmnElement="flowProductReviewToGateway">
-        <omgdi:waypoint x="660" y="120" />
-        <omgdi:waypoint x="700" y="120" />
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="BPMNEdge_flowProductApprove" bpmnElement="flowProductApprove">
-        <omgdi:waypoint x="750" y="120" />
-        <omgdi:waypoint x="785" y="120" />
-        <omgdi:waypoint x="785" y="218" />
-        <omgdi:waypoint x="820" y="218" />
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="BPMNEdge_flowProductReject" bpmnElement="flowProductReject">
-        <omgdi:waypoint x="725" y="145" />
-        <omgdi:waypoint x="725" y="340" />
-        <omgdi:waypoint x="820" y="340" />
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="BPMNEdge_flowProductBackToCreator" bpmnElement="flowProductBackToCreator">
-        <omgdi:waypoint x="725" y="95" />
-        <omgdi:waypoint x="725" y="40" />
-        <omgdi:waypoint x="660" y="40" />
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="BPMNEdge_flowClarificationToProductReview" bpmnElement="flowClarificationToProductReview">
-        <omgdi:waypoint x="610" y="80" />
-        <omgdi:waypoint x="610" y="120" />
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="BPMNEdge_flowStandardReviewToGateway" bpmnElement="flowStandardReviewToGateway">
-        <omgdi:waypoint x="520" y="320" />
-        <omgdi:waypoint x="560" y="320" />
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="BPMNEdge_flowStandardApprove" bpmnElement="flowStandardApprove">
-        <omgdi:waypoint x="610" y="320" />
-        <omgdi:waypoint x="715" y="320" />
-        <omgdi:waypoint x="715" y="218" />
-        <omgdi:waypoint x="820" y="218" />
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="BPMNEdge_flowStandardReject" bpmnElement="flowStandardReject">
-        <omgdi:waypoint x="585" y="345" />
-        <omgdi:waypoint x="585" y="380" />
-        <omgdi:waypoint x="870" y="380" />
-        <omgdi:waypoint x="870" y="380" />
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="BPMNEdge_flowApproveToEnd" bpmnElement="flowApproveToEnd">
-        <omgdi:waypoint x="920" y="218" />
-        <omgdi:waypoint x="980" y="218" />
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="BPMNEdge_flowRejectToEnd" bpmnElement="flowRejectToEnd">
-        <omgdi:waypoint x="920" y="340" />
-        <omgdi:waypoint x="998" y="340" />
-        <omgdi:waypoint x="998" y="236" />
-      </bpmndi:BPMNEdge>
-    </bpmndi:BPMNPlane>
-  </bpmndi:BPMNDiagram>
+        <sequenceFlow id="flowStartResolve" sourceRef="start" targetRef="resolveEntityType"/>
+        <sequenceFlow id="flowResolveGate" sourceRef="resolveEntityType" targetRef="entityTypeGate"/>
+
+        <sequenceFlow id="flowContactTriple" sourceRef="entityTypeGate" targetRef="contactApiReview">
+            <conditionExpression xsi:type="tFormalExpression"><![CDATA[${contactChangeTripleReview == true}]]></conditionExpression>
+        </sequenceFlow>
+        <sequenceFlow id="flowEmployeeBranch" sourceRef="entityTypeGate" targetRef="employeeFirstReview">
+            <conditionExpression xsi:type="tFormalExpression"><![CDATA[${entityType == 'configuration/entityTypes/Employee'}]]></conditionExpression>
+        </sequenceFlow>
+        <sequenceFlow id="flowStandardReview" sourceRef="entityTypeGate" targetRef="standardDcrReview"/>
+
+        <sequenceFlow id="flowContactApiToGw" sourceRef="contactApiReview" targetRef="contactApiGateway"/>
+        <sequenceFlow id="flowContactApiApprove" sourceRef="contactApiGateway" targetRef="contactAdminReview1">
+            <conditionExpression xsi:type="tFormalExpression"><![CDATA[${decision=='Approve'}]]></conditionExpression>
+        </sequenceFlow>
+        <sequenceFlow id="flowContactApiReject" sourceRef="contactApiGateway" targetRef="contactRejectDcr"/>
+
+        <sequenceFlow id="flowContactAdmin1ToGw" sourceRef="contactAdminReview1" targetRef="contactAdminGateway1"/>
+        <sequenceFlow id="flowContactAdmin1Approve" sourceRef="contactAdminGateway1" targetRef="contactAdminReview2">
+            <conditionExpression xsi:type="tFormalExpression"><![CDATA[${decision=='Approve'}]]></conditionExpression>
+        </sequenceFlow>
+        <sequenceFlow id="flowContactAdmin1Reject" sourceRef="contactAdminGateway1" targetRef="contactRejectDcr"/>
+
+        <sequenceFlow id="flowContactAdmin2ToGw" sourceRef="contactAdminReview2" targetRef="contactAdminGateway2"/>
+        <sequenceFlow id="flowContactAdmin2Approve" sourceRef="contactAdminGateway2" targetRef="contactApplyDcr">
+            <conditionExpression xsi:type="tFormalExpression"><![CDATA[${decision=='Approve'}]]></conditionExpression>
+        </sequenceFlow>
+        <sequenceFlow id="flowContactAdmin2Reject" sourceRef="contactAdminGateway2" targetRef="contactRejectDcr"/>
+
+        <sequenceFlow id="flowContactApplyEnd" sourceRef="contactApplyDcr" targetRef="endApproved"/>
+        <sequenceFlow id="flowContactRejectEnd" sourceRef="contactRejectDcr" targetRef="endRejected"/>
+
+        <sequenceFlow id="flowEmp1ToGw" sourceRef="employeeFirstReview" targetRef="employeeGateway1"/>
+        <sequenceFlow id="flowEmp1Approve" sourceRef="employeeGateway1" targetRef="employeeSecondReview">
+            <conditionExpression xsi:type="tFormalExpression"><![CDATA[${decision=='Approve'}]]></conditionExpression>
+        </sequenceFlow>
+        <sequenceFlow id="flowEmp1Reject" sourceRef="employeeGateway1" targetRef="rejectDcr"/>
+
+        <sequenceFlow id="flowEmp2ToGw" sourceRef="employeeSecondReview" targetRef="employeeGateway2"/>
+        <sequenceFlow id="flowEmp2Approve" sourceRef="employeeGateway2" targetRef="applyDcr">
+            <conditionExpression xsi:type="tFormalExpression"><![CDATA[${decision=='Approve'}]]></conditionExpression>
+        </sequenceFlow>
+        <sequenceFlow id="flowEmp2Reject" sourceRef="employeeGateway2" targetRef="rejectDcr"/>
+
+        <sequenceFlow id="flowStdToGw" sourceRef="standardDcrReview" targetRef="standardGateway"/>
+        <sequenceFlow id="flowStdApprove" sourceRef="standardGateway" targetRef="applyDcr">
+            <conditionExpression xsi:type="tFormalExpression"><![CDATA[${decision=='Approve'}]]></conditionExpression>
+        </sequenceFlow>
+        <sequenceFlow id="flowStdReject" sourceRef="standardGateway" targetRef="rejectDcr"/>
+
+        <sequenceFlow id="flowApplyEnd" sourceRef="applyDcr" targetRef="endApproved"/>
+        <sequenceFlow id="flowRejectEnd" sourceRef="rejectDcr" targetRef="endRejected"/>
+
+    </process>
+
+    <bpmndi:BPMNDiagram id="BPMNDiagram_dataChangeRequestReview">
+        <bpmndi:BPMNPlane id="BPMNPlane_dataChangeRequestReview" bpmnElement="dataChangeRequestReview">
+
+            <bpmndi:BPMNShape id="shape_start" bpmnElement="start">
+                <omgdc:Bounds x="60" y="220" width="36" height="36"/>
+            </bpmndi:BPMNShape>
+            <bpmndi:BPMNShape id="shape_resolveEntityType" bpmnElement="resolveEntityType">
+                <omgdc:Bounds x="140" y="198" width="140" height="80"/>
+            </bpmndi:BPMNShape>
+            <bpmndi:BPMNShape id="shape_entityTypeGate" bpmnElement="entityTypeGate" isMarkerVisible="true">
+                <omgdc:Bounds x="330" y="218" width="40" height="40"/>
+            </bpmndi:BPMNShape>
+
+            <bpmndi:BPMNShape id="shape_contactApiReview" bpmnElement="contactApiReview">
+                <omgdc:Bounds x="430" y="40" width="150" height="80"/>
+            </bpmndi:BPMNShape>
+            <bpmndi:BPMNShape id="shape_contactApiGateway" bpmnElement="contactApiGateway" isMarkerVisible="true">
+                <omgdc:Bounds x="620" y="60" width="40" height="40"/>
+            </bpmndi:BPMNShape>
+            <bpmndi:BPMNShape id="shape_contactAdminReview1" bpmnElement="contactAdminReview1">
+                <omgdc:Bounds x="710" y="40" width="160" height="80"/>
+            </bpmndi:BPMNShape>
+            <bpmndi:BPMNShape id="shape_contactAdminGateway1" bpmnElement="contactAdminGateway1" isMarkerVisible="true">
+                <omgdc:Bounds x="910" y="60" width="40" height="40"/>
+            </bpmndi:BPMNShape>
+            <bpmndi:BPMNShape id="shape_contactAdminReview2" bpmnElement="contactAdminReview2">
+                <omgdc:Bounds x="1000" y="40" width="160" height="80"/>
+            </bpmndi:BPMNShape>
+            <bpmndi:BPMNShape id="shape_contactAdminGateway2" bpmnElement="contactAdminGateway2" isMarkerVisible="true">
+                <omgdc:Bounds x="1210" y="60" width="40" height="40"/>
+            </bpmndi:BPMNShape>
+            <bpmndi:BPMNShape id="shape_contactApplyDcr" bpmnElement="contactApplyDcr">
+                <omgdc:Bounds x="1290" y="198" width="110" height="80"/>
+            </bpmndi:BPMNShape>
+            <bpmndi:BPMNShape id="shape_contactRejectDcr" bpmnElement="contactRejectDcr">
+                <omgdc:Bounds x="850" y="320" width="110" height="80"/>
+            </bpmndi:BPMNShape>
+
+            <bpmndi:BPMNShape id="shape_employeeFirstReview" bpmnElement="employeeFirstReview">
+                <omgdc:Bounds x="430" y="140" width="140" height="80"/>
+            </bpmndi:BPMNShape>
+            <bpmndi:BPMNShape id="shape_employeeGateway1" bpmnElement="employeeGateway1" isMarkerVisible="true">
+                <omgdc:Bounds x="620" y="160" width="40" height="40"/>
+            </bpmndi:BPMNShape>
+            <bpmndi:BPMNShape id="shape_employeeSecondReview" bpmnElement="employeeSecondReview">
+                <omgdc:Bounds x="710" y="140" width="140" height="80"/>
+            </bpmndi:BPMNShape>
+            <bpmndi:BPMNShape id="shape_employeeGateway2" bpmnElement="employeeGateway2" isMarkerVisible="true">
+                <omgdc:Bounds x="910" y="160" width="40" height="40"/>
+            </bpmndi:BPMNShape>
+
+            <bpmndi:BPMNShape id="shape_standardDcrReview" bpmnElement="standardDcrReview">
+                <omgdc:Bounds x="430" y="340" width="120" height="80"/>
+            </bpmndi:BPMNShape>
+            <bpmndi:BPMNShape id="shape_standardGateway" bpmnElement="standardGateway" isMarkerVisible="true">
+                <omgdc:Bounds x="600" y="360" width="40" height="40"/>
+            </bpmndi:BPMNShape>
+
+            <bpmndi:BPMNShape id="shape_applyDcr" bpmnElement="applyDcr">
+                <omgdc:Bounds x="1080" y="360" width="100" height="80"/>
+            </bpmndi:BPMNShape>
+            <bpmndi:BPMNShape id="shape_rejectDcr" bpmnElement="rejectDcr">
+                <omgdc:Bounds x="700" y="500" width="100" height="80"/>
+            </bpmndi:BPMNShape>
+            <bpmndi:BPMNShape id="shape_endApproved" bpmnElement="endApproved">
+                <omgdc:Bounds x="1450" y="220" width="36" height="36"/>
+            </bpmndi:BPMNShape>
+            <bpmndi:BPMNShape id="shape_endRejected" bpmnElement="endRejected">
+                <omgdc:Bounds x="1000" y="522" width="36" height="36"/>
+            </bpmndi:BPMNShape>
+
+        </bpmndi:BPMNPlane>
+    </bpmndi:BPMNDiagram>
 </definitions>
